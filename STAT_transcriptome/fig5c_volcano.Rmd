@@ -1,0 +1,103 @@
+---
+title: Gene set enrichment analysis w/ fGSEA
+author: "pz"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    highlight: tango
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, result='hold',fig.width=8,tidy=TRUE, cache=FALSE)
+knitr::opts_knit$set(progress=TRUE,verbose=TRUE)
+```
+
+```{r libraries, cache=FALSE}
+library(data.table)
+library(magrittr)
+library(knitr)
+library(ggplot2); theme_set(theme_bw(base_size = 16))
+library(DESeq2)
+library(ggsci)
+library(dplyr)
+library(pheatmap)
+library(openxlsx)
+library(EnhancedVolcano)
+```
+
+
+```{r read_in_deseq2_results}
+de.all <- list()
+alphaTR = 0.05
+lfcThres = 0
+
+file_list =  list.files("./differential_expression_res/", pattern = ".xlsx")
+for (i in seq_along(file_list)) {
+  file <- file_list[i]
+  list_name <- gsub("deseq2_", "", file)
+  list_name <- gsub(".padj0.05.res.xlsx", "", list_name)  
+  de.all[[list_name]] <- read.xlsx(paste0("./differential_expression_res/", file), sheet = 1)
+}
+
+de.all.sig <- lapply(de.all, subset, padj < alphaTR & abs(log2FoldChange) > lfcThres)
+```
+
+
+#  Volcano plots {.tabset}
+
+volcano plot created using EnhancedVolcano (https://bioconductor.org/packages/release/bioc/vignettes/EnhancedVolcano/inst/doc/EnhancedVolcano.html
+
+params for volcano:
+
+- adj. p cutoff =  `r alphaTR`
+- log2FoldChange cutoff = 1
+
+```{r volcano_plots,  fig.width=7, fig.height=6,  results="asis"}
+lapply(seq_along(de.all.sig), function(x){
+  name = names(de.all.sig)[x]
+  cat("\n\n##",name, "\n\n")
+  
+  all.de = de.all[[x]]
+  row.names(all.de) = all.de$Row.names
+  all.de = all.de[!is.na(all.de$padj),]
+  
+  
+  selectLab = c("Gbp2", "Gbp3", "Gbp7", "Gbp5", "Cybb")
+  
+  pv = EnhancedVolcano(all.de,
+                       lab = rownames(all.de),
+                       x = 'log2FoldChange',
+                       y = "padj",
+                       pCutoff = alphaTR,
+                       FCcutoff = 1,
+                       selectLab=selectLab,
+                       drawConnectors=T,
+                       boxedLabels = T,
+                       subtitle=names( de.all)[[x]],
+                       legendPosition = 'bottom', 
+                       maxoverlapsConnectors = Inf,
+                       labSize = 3,
+                       pointSize=1,
+                       labCol="red",
+                       col=c('grey', 'grey', 'grey', 'black'))
+  print(pv)
+
+}) %>% invisible()
+
+```
+
+
+# Session Info
+```{r session,  context="data"}
+sessionInfo()
+```

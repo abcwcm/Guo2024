@@ -1,0 +1,140 @@
+---
+title: Differential expression analysis
+subtitle: two-factor model
+author: "pz"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    highlight: tango
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, result='hold',fig.width=8,tidy=TRUE, cache=FALSE)
+knitr::opts_knit$set(progress=TRUE,verbose=TRUE)
+```
+
+```{r libraries, cache=FALSE}
+library(data.table)
+library(magrittr)
+library(knitr)
+library(ggplot2); theme_set(theme_bw(base_size = 16))
+library(DESeq2)
+library(ggsci)
+library(dplyr)
+library(openxlsx)
+```
+
+```{r decoder}
+decoderFile <- "decoder.txt"
+decoder.data <- fread(decoderFile) %>% as.data.frame()
+decoder.data$source <- factor(decoder.data$source)
+decoder.data$condition <-factor(decoder.data$condition)
+decoder.data$group <- factor(paste(decoder.data$condition, decoder.data$source, sep="_"))
+decoder.data$batch <- factor(decoder.data$batch)
+row.names(decoder.data) = decoder.data$sample.ID
+```
+
+```{r counts}
+counts <- read.table(file = "gene.counts.txt", header = TRUE, check.names=FALSE, row.names=1)
+decoder.data <- decoder.data[decoder.data$sample.ID %in% colnames(counts),]
+counts <- counts[,c(decoder.data$sample.ID)]
+
+if (!identical(colnames(counts), decoder.data$sample.ID)) {
+  stop("Column names in counts do not match sample IDs in decoder data")
+}
+```
+
+# Samples
+
+The following samples were part of this analysis:
+
+```{r samples}
+as_tibble(decoder.data[,c(-1)])
+```
+
+```{r}
+color_palette <- c("#99c4ab", "#8898fa", "pink")
+names(color_palette) <- levels(decoder.data$group)
+```
+
+# Differential expression analysis {.tabset}
+
+```{r createDDS}
+dds <- DESeq2::DESeqDataSetFromMatrix(countData = counts, 
+                                      colData = decoder.data, 
+                                      design = ~ batch + group)
+dds <- estimateSizeFactors(dds)
+vsd <- DESeq2::vst(dds, blind = TRUE)
+normCounts = assay(vsd)
+dds <- DESeq(dds)
+baseMeanPerLvl <- sapply(levels(dds$group), function(lvl) rowMeans( counts(dds, normalized=TRUE)[,dds$group == lvl, drop=F]))
+```
+
+```{r deseq2}
+varInt="group"
+de.all <- list()
+alphaTR = 0.05
+lfcThres = 0
+
+for (comp in combn(nlevels(colData(dds)[,varInt]), 2, simplify=FALSE)){
+  levelRef <- levels(colData(dds)[,varInt])[comp[1]]
+  levelTest <- levels(colData(dds)[,varInt])[comp[2]]
+  de.all[[paste0(levelTest,"_vs_",levelRef)]] <- 
+    results(dds, contrast=c(varInt, levelTest, levelRef), alpha=alphaTR) %>% as.data.frame()
+}
+```
+
+
+## Number of DEGs (table)
+
+The following genes were detected as differentially expressed (adjusted p < `r alphaTR` and abs(log2FoldChange) > `r lfcThres`):
+
+```{r printDEGtable}
+de.all.sig <- lapply(de.all, subset, padj < alphaTR & abs(log2FoldChange) > lfcThres)
+
+res =  as.data.frame(sapply(de.all.sig, nrow))
+colnames(res) <- paste0("padj<",alphaTR, " & ","abs(log2FoldChange)>",lfcThres)
+
+rel.contrs = 1:nrow(res)
+
+as_tibble(cbind(res,"contrast #"=rel.contrs) %>%  tibble::rownames_to_column(var="contrast"))
+```
+
+
+```{r save_result, eval=T,fig.width=8.3, fig.height=10}
+
+dir.create("./differential_expression_res/", showWarnings = FALSE, recursive = FALSE, mode = "0777")
+
+lapply(rel.contrs, function(x){
+  df <- de.all[[x]] 
+  name <- names(de.all)[x]
+  samples_in_contrast <- unlist(strsplit(name, "_vs_"))
+  wb <- createWorkbook()
+  posStyle <- createStyle(fontColour = "#000000", bgFill = "#C6EFCE")
+  addWorksheet(wb, stringr::str_trunc(name, width=31))
+  forExcel <- merge(baseMeanPerLvl[,samples_in_contrast], df, by="row.names")
+  forExcel <- forExcel[order(forExcel$padj),]
+  writeData(wb, stringr::str_trunc(name, width=31), forExcel, rowNames=T, keepNA=T) 
+  rule <- eval(paste0("$",LETTERS[which(colnames(forExcel) == "padj")+1],paste0("2<",alphaTR)))
+  conditionalFormatting(wb, stringr::str_trunc(name, width=31), cols=1:(ncol(forExcel)+1), rows=2:nrow(df), rule=rule,  style = posStyle)
+  freezePane(wb, stringr::str_trunc(name, width=31), firstActiveRow = 2)
+  setColWidths(wb, stringr::str_trunc(name, width=31), cols = 1:ncol(forExcel), widths = "auto")
+   saveWorkbook(wb = wb, file =  paste0("./differential_expression_res/deseq2_",name,"_padj",alphaTR,".res.xlsx"), overwrite=T)
+}) %>% invisible()
+```
+
+
+# Session Info
+```{r session,  context="data"}
+sessionInfo()
+```

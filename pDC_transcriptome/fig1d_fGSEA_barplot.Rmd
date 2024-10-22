@@ -1,0 +1,80 @@
+---
+title: fGSEA barplot
+author: "pz"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    highlight: tango
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, result='hold',fig.width=8,tidy=TRUE, cache=FALSE)
+knitr::opts_knit$set(progress=TRUE,verbose=TRUE)
+```
+
+```{r libraries, cache=FALSE}
+library(data.table)
+library(magrittr)
+library(knitr)
+library(ggplot2); theme_set(theme_bw(base_size = 16))
+library(DESeq2)
+library(ggsci)
+library(dplyr)
+library(pheatmap)
+library(openxlsx)
+library(fgsea)
+library(enrichplot)
+library(org.Mm.eg.db)
+library(clusterProfiler)
+```
+
+```{r read_in_results}
+df = read.xlsx("./fgsea_res/deseq2_infected_lung_vs_infected_BM_fgsea_padj0.05.res.xlsx")
+```
+
+## Differentially enriched KEGG pathways (q < 0.05) in pDCs isolated from infected lungs vs infected BM.
+
+```{r}
+sets = c("KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
+         "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+         "KEGG_TOLL_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+         "KEGG_RIG_I_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+         "KEGG_ANTIGEN_PROCESSING_AND_PRESENTATION",
+         "KEGG_CELL_CYCLE",
+         "KEGG_DNA_REPLICATION")
+```
+
+
+```{r kegg_bar, fig.width=8, fig.height=3 ,  results="asis"}
+df = subset(df, pathway %in% sets) 
+df$pathway = gsub("_", " ", df$pathway)
+df$pathway = gsub("KEGG", " ", df$pathway)
+df$pathway <- factor(df$pathway, levels = df$pathway[order(df$NES)])
+
+df$bar_color <- ifelse(df$NES >= 0, "#99c4ab", "#8898fa")
+
+ggplot(df, aes(x = NES, y = pathway, fill = bar_color)) +
+  geom_bar(stat = "identity") +
+  scale_fill_identity() +
+  labs(x = "Normalized Enrichment Score", y = "") +
+  ggtitle("KEGG gene sets") +
+  geom_vline(xintercept = 0, color = "black", linetype = "solid", size = 0.8) +
+  theme_minimal(base_size=16) 
+
+```
+
+
+# Session Info
+```{r session,  context="data"}
+sessionInfo()
+```

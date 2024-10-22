@@ -1,0 +1,114 @@
+---
+title: Gene set enrichment analysis w/ fGSEA
+author: "pz"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    highlight: tango
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, result='hold',fig.width=8,tidy=TRUE, cache=FALSE)
+knitr::opts_knit$set(progress=TRUE,verbose=TRUE)
+```
+
+```{r libraries, cache=FALSE}
+library(data.table)
+library(magrittr)
+library(knitr)
+library(ggplot2); theme_set(theme_bw(base_size = 16))
+library(DESeq2)
+library(ggsci)
+library(dplyr)
+library(pheatmap)
+library(openxlsx)
+library(fgsea)
+library(enrichplot)
+library(org.Mm.eg.db)
+library(clusterProfiler)
+```
+
+# Gene set enrichment with fGSEA {.tabset}
+
+We used the `fgseaMultilevel` function from the `fgsea` package with the following parameters: 
+
+  -minGSSize = 10
+  -maxGSSize  = 500.
+
+Genes were sorted on DESeq2 Wald stat
+
+Only showing top / bottom 15 enriched pathways.
+
+```{r read_in_deseq2_results}
+de.all <- list()
+alphaTR = 0.05
+lfcThres = 0
+
+file_list =  list.files("./differential_expression_res/", pattern = ".xlsx")
+for (i in seq_along(file_list)) {
+  file <- file_list[i]
+  list_name <- gsub("deseq2_", "", file)
+  list_name <- gsub(".padj0.05.res.xlsx", "", list_name)  
+  de.all[[list_name]] <- read.xlsx(paste0("./differential_expression_res/", file), sheet = 1)
+}
+```
+
+```{r loadGeneSets}
+gmt.kegg <- msigdbr::msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:KEGG") %>% dplyr::select(gs_name, entrez_gene)
+gmt.kegg = gmt.kegg %>% split(x = .$entrez_gene, f = .$gs_name)
+```
+
+```{r fgsea}
+dir.create("./fgsea_res/", showWarnings = FALSE, recursive = FALSE, mode = "0777")
+
+lapply(seq_along(de.all), function(x){
+  name = names(de.all)[x]
+
+  res = de.all[[x]] %>%
+    as.data.frame() %>%
+    as.data.table(keep.rownames=FALSE) %>%
+    setnames("Row.names", "gene_symbol")
+  
+  eg = bitr(res$gene_symbol, fromType="SYMBOL", toType="ENTREZID", OrgDb="org.Mm.eg.db") %>%
+    as.data.table() %>%
+    setnames(names(.), c("gene_symbol", "entrez"))
+  
+  eg = res[eg, on = "gene_symbol"] 
+  
+  geneList = setNames(eg$stat, eg$entrez)
+  
+  geneList = sort(geneList, decreasing = TRUE)
+
+  gmtList = list(gmt.kegg=gmt.kegg)
+  
+  fgsea.gmt.list <- lapply(gmtList, function(gmt) {
+    set.seed(08123815)
+    fgseaRes <- fgseaMultilevel(gmt, geneList, minSize=10, maxSize=500)
+    fgseaRes$leadingEdge <- lapply(fgseaRes$leadingEdge, mapIds, x=org.Mm.eg.db, keytype="ENTREZID", column="SYMBOL")
+    fgseaRes_filtered <- fgseaRes[padj < 0.05]
+    list(filtered = fgseaRes_filtered, unfiltered = fgseaRes)
+  })
+
+  names(fgsea.gmt.list) = c("kegg")
+
+  filtered_results <- lapply(fgsea.gmt.list, `[[`, "filtered")
+  openxlsx::write.xlsx(filtered_results, paste0("./fgsea_res/deseq2_", name, "_fgsea", "_padj0.05.res.xlsx"))
+
+})  %>% invisible()
+```
+
+
+# Session Info
+```{r session,  context="data"}
+sessionInfo()
+```

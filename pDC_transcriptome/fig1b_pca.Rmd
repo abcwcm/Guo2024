@@ -1,0 +1,119 @@
+---
+title: PCA
+author: "pz"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    highlight: tango
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, result='hold',fig.width=8,tidy=TRUE, cache=FALSE)
+knitr::opts_knit$set(progress=TRUE,verbose=TRUE)
+```
+
+```{r libraries, cache=FALSE}
+library(data.table)
+library(magrittr)
+library(knitr)
+library(ggplot2); theme_set(theme_bw(base_size = 16))
+library(DESeq2)
+library(ggsci)
+library(dplyr)
+library(ggrepel)
+library(tidyverse)
+library(factoextra)
+library(FactoMineR)
+library(ggrepel)
+library(kableExtra)
+library(patchwork)
+```
+
+
+
+```{r decoder}
+decoderFile <- "decoder.txt"
+decoder.data <- fread(decoderFile) %>% as.data.frame()
+decoder.data$source <- factor(decoder.data$source)
+decoder.data$condition <-factor(decoder.data$condition)
+decoder.data$group <- factor(paste(decoder.data$condition, decoder.data$source, sep="_"))
+decoder.data$batch <- factor(decoder.data$batch)
+row.names(decoder.data) = decoder.data$sample.ID
+```
+
+```{r counts}
+counts <- read.table(file = "gene.counts.txt", header = TRUE, check.names=FALSE, row.names=1)
+decoder.data <- decoder.data[decoder.data$sample.ID %in% colnames(counts),]
+counts <- counts[,c(decoder.data$sample.ID)]
+
+if (!identical(colnames(counts), decoder.data$sample.ID)) {
+  stop("Column names in counts do not match sample IDs in decoder data")
+}
+```
+
+# Samples
+
+The following samples were part of this analysis:
+
+```{r samples}
+as_tibble(decoder.data[,c(-1)])
+```
+
+```{r}
+color_palette <- c("#99c4ab", "#8898fa", "pink")
+names(color_palette) <- levels(decoder.data$group)
+```
+
+# PCA {.tabset}
+
+Based on VST normalized data
+
+```{r createDDS}
+dds <- DESeq2::DESeqDataSetFromMatrix(countData = counts, 
+                                      colData = decoder.data, 
+                                      design = ~ group)
+
+dds <- estimateSizeFactors(dds)
+vsd <- DESeq2::vst(dds, blind = TRUE)
+```
+
+## Top 500 most variable genes {.tabset}
+
+
+```{r, eval=T}
+ntop = 500
+Pvars <- rowVars(assay(vsd))
+select <- order(Pvars, decreasing = TRUE)[seq_len(min(ntop, length(Pvars)))]
+PCA <- prcomp(t(assay(vsd)[select, ]), scale = F)
+percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
+dataGG = merge(data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2]), colData(vsd), by="row.names") %>% as.data.frame()
+
+ggplot(dataGG, aes(PC1, PC2)) + 
+  geom_point(size = 4, aes(color = group, shape=batch), show.legend = T) + 
+  theme_minimal(base_size = 18) +
+  xlab(paste0("PC1")) + 
+  ylab(paste0("PC2")) + 
+  theme(legend.position = "right")   + 
+  scale_color_manual(values=color_palette, name="group")+
+  guides(color = guide_legend(order=1),
+         shape = guide_legend(order=2)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_shape_manual(values=c(15,16))
+```
+
+
+# Session Info
+```{r session, message=FALSE, warning=FALSE, cache=FALSE,echo=FALSE, fig.width=10, fig.height=5.5, context="data"}
+sessionInfo()
+```

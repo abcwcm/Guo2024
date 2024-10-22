@@ -1,0 +1,84 @@
+---
+title: fGSEA barplot
+author: "pz"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    highlight: tango
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, result='hold',fig.width=8,tidy=TRUE, cache=FALSE)
+knitr::opts_knit$set(progress=TRUE,verbose=TRUE)
+```
+
+```{r libraries, cache=FALSE}
+library(data.table)
+library(magrittr)
+library(knitr)
+library(ggplot2); theme_set(theme_bw(base_size = 16))
+library(DESeq2)
+library(ggsci)
+library(dplyr)
+library(pheatmap)
+library(openxlsx)
+library(fgsea)
+library(enrichplot)
+library(org.Mm.eg.db)
+library(clusterProfiler)
+```
+
+```{r read_in_results}
+df = read.xlsx("./fgsea_res/deseq2_infected_lung_vs_infected_BM_fgsea_padj0.05.res.xlsx")
+```
+
+## Differentially enriched KEGG pathways (q < 0.05) in pDCs isolated from infected lungs vs infected BM.
+
+```{r}
+sets <- c("KEGG_ALLOGRAFT_REJECTION", 
+          "KEGG_STEROID_BIOSYNTHESIS", 
+          "KEGG_NOD_LIKE_RECEPTOR_SIGNALING_PATHWAY", 
+              "KEGG_PROTEASOME", "KEGG_TYPE_I_DIABETES_MELLITUS", "KEGG_GRAFT_VERSUS_HOST_DISEASE", 
+              "KEGG_CYTOSOLIC_DNA_SENSING_PATHWAY", "KEGG_EPITHELIAL_CELL_SIGNALING_IN_HELICOBACTER_PYLORI_INFECTION", 
+              "KEGG_AUTOIMMUNE_THYROID_DISEASE", "KEGG_CHEMOKINE_SIGNALING_PATHWAY", "KEGG_HEMATOPOIETIC_CELL_LINEAGE", 
+              "KEGG_STEROID_HORMONE_BIOSYNTHESIS", "KEGG_LYSOSOME", "KEGG_ASTHMA", "KEGG_VIRAL_MYOCARDITIS", 
+              "KEGG_VIBRIO_CHOLERAE_INFECTION", "KEGG_T_CELL_RECEPTOR_SIGNALING_PATHWAY", 
+              "KEGG_INTESTINAL_IMMUNE_NETWORK_FOR_IGA_PRODUCTION", "KEGG_NATURAL_KILLER_CELL_MEDIATED_CYTOTOXICITY", 
+              "KEGG_B_CELL_RECEPTOR_SIGNALING_PATHWAY", "KEGG_MAPK_SIGNALING_PATHWAY", 
+              "KEGG_PROGESTERONE_MEDIATED_OOCYTE_MATURATION", "KEGG_OOCYTE_MEIOSIS", "KEGG_BASE_EXCISION_REPAIR")
+```
+
+
+```{r kegg_bar, fig.width=10, fig.height=6 ,  results="asis"}
+df = subset(df, pathway %in% sets) 
+df$pathway = gsub("_", " ", df$pathway)
+df$pathway = gsub("KEGG", " ", df$pathway)
+df$pathway <- factor(df$pathway, levels = df$pathway[order(df$NES)])
+
+df$bar_color <- ifelse(df$NES >= 0, "#99c4ab", "#8898fa")
+
+ggplot(df, aes(x = NES, y = pathway, fill = bar_color)) +
+  geom_bar(stat = "identity") +
+  scale_fill_identity() +
+  labs(x = "Normalized Enrichment Score", y = "") +
+  ggtitle("KEGG gene sets") +
+  geom_vline(xintercept = 0, color = "black", linetype = "solid", size = 0.8) +
+  theme_minimal(base_size=16) 
+
+```
+
+
+# Session Info
+```{r session,  context="data"}
+sessionInfo()
+```
